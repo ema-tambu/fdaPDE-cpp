@@ -1,0 +1,15 @@
+*.txt
+*.json
+*.cmake
+*Makefile
+*.Rhistory
+*.tar.gz
+*.RData
+*.o
+*.so
+test/fdapde_test
+test/.cache
+test/build/
+test/CMakeFiles/
+test/_deps/
+test/libs/
