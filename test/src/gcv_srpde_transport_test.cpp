@@ -50,7 +50,7 @@ using fdapde::testing::read_csv;
 
 using fdapde::core::PDEparameters;
 
-/*
+
 TEST(gcv_srpde_transport_test, transport_testcase0_samplingatlocations_gridexact) {
     // define exact solution
     auto solutionExpr = [](SVector<2> x) -> double {
@@ -138,7 +138,7 @@ TEST(gcv_srpde_transport_test, transport_testcase0_samplingatlocations_gridexact
     std::cout << "Best lambda: " << best_lambda << std::endl;
     EXPECT_TRUE(1);
 }
-*/
+
 /*
 TEST(gcv_srpde_transport_test, transport_testcase0_samplingatlocations_gridexact_COVARIATES) {
     // define exact solution

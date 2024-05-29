@@ -196,19 +196,28 @@ void RegressionBase<Model, RegularizationType>::set_dirichlet_bc(SparseBlockMatr
 
     for (std::size_t i = 0; i < n; i++){
         if (boundary_dofs_Dirichlet_.coeffRef(i, 0) == 1){
-            // A.row(i) *= 0;
+            
             A.block(0,0).row(i) *= 0;
             A.block(0,1).row(i) *= 0;
-            A.coeffRef(i, i) = 1;
+            A.block(0,0).coeffRef(i, i) = 1;
+
+            // penalty method
+            // A.block(0,0).coeffRef(i, i) *= 1e30;
 
             A.block(1,0).row(i) *= 0;
             A.block(1,1).row(i) *= 0;
-            A.coeffRef(i + n, i + n) = 1;
+            A.block(1,1).coeffRef(i, i) = 1;
+            
+            // penalty method
+            // A.block(1,1).coeffRef(i, i) *= 1e30;
 
             double boundaryDatum = boundary_data_Dirichlet_.coeffRef(i, 0);
-            // std::cout << "Dir b.c. n = " << i << " value = " << boundaryDatum << std::endl;
             b.coeffRef(i, 0) = boundaryDatum;
-            b.coeffRef(i + n, 0) = 0;
+
+            // penalty method
+            // b.coeffRef(i, 0) = 1e30 * boundaryDatum;
+            
+            b.coeffRef(i + n, 0) = 0;   // \hat{g} has homogeneous dirichlet b.c.
         }
     }
     return;

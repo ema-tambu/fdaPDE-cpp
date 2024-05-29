@@ -76,12 +76,16 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
         if (!has_covariates()) {   // nonparametric case
             // update rhs of SR-PDE linear system
             b_.block(0, 0, n_basis(), 1) = -PsiTD() * W() * y();
+            Base::set_dirichlet_bc(A_, b_); // TODO: avoid to redo at each fit
+            invA_.compute(A_);
             // solve linear system A_*x = b_
             sol = invA_.solve(b_);
             f_ = sol.head(n_basis());
         } else {   // parametric case
             // update rhs of SR-PDE linear system
             b_.block(0, 0, n_basis(), 1) = -PsiTD() * lmbQ(y());   // -\Psi^T*D*Q*z
+            Base::set_dirichlet_bc(A_, b_); // TODO: avoid to redo at each fit
+            invA_.compute(A_);
             // matrices U and V for application of woodbury formula
             U_ = DMatrix<double>::Zero(2 * n_basis(), q());
             U_.block(0, 0, n_basis(), q()) = PsiTD() * W() * X();
@@ -100,8 +104,8 @@ class SRPDE : public RegressionBase<SRPDE, SpaceOnly> {
     // GCV support
     double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const { return (op1 - op2).squaredNorm(); }
     // getters
-    SparseBlockMatrix<double, 2, 2>& A() { return A_; }
-    DVector<double>& b() { return b_; }
+    const SparseBlockMatrix<double, 2, 2>& A() { return A_; }
+    const DVector<double>& b() { return b_; }
     const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
     virtual ~SRPDE() = default;
 };
