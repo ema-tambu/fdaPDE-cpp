@@ -44,6 +44,11 @@ using fdapde::core::PDEparameters;
 using fdapde::models::ExactEDF;
 using fdapde::core::Grid;
 
+#include "../../fdaPDE/calibration/kfold_cv.h"
+#include "../../fdaPDE/calibration/rmse.h"
+using fdapde::calibration::KCV;
+using fdapde::calibration::RMSE;
+
 void writeEigenVectorToCSV(const std::string& filename, const Eigen::VectorXd& vector) {
     std::ofstream file(filename);
     if (!file.is_open()) {
@@ -53,18 +58,85 @@ void writeEigenVectorToCSV(const std::string& filename, const Eigen::VectorXd& v
     for (int i = 0; i < vector.size(); ++i) {
         file << vector(i) << "\n";
     }
-
     file.close();
 }
+
+void writeEigenMatrixToCSV(const std::string& filename, const Eigen::MatrixXd& matrix) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return;
+    }
+    for (int i = 0; i < matrix.rows(); ++i) {
+        for (int j = 0; j < matrix.cols(); ++j) {
+            file << matrix(i, j) << ",";
+        }
+        file << "\n";
+    }
+    file.close();
+}
+/*
+TEST(srpde_test, TestPsi){
+
+    constexpr std::size_t femOrder = 1;
+    std::cout << "femOrder: " << femOrder << std::endl;
+
+    MeshLoader<Mesh2D> domain("unit_square_5");
+    std::cout << "domain loaded" << std::endl;
+
+    // auto L = - nu * laplacian<FEM>() + advection<FEM>(b);
+    auto L = - laplacian<FEM>(); 
+    
+    // define the boundary with a DMatrix (=0 if Dirichlet, =1 if Neumann, =2 if Robin)
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+
+    PDE< decltype(domain.mesh), decltype(L), ScalarField<2>, FEM, fem_order<femOrder>> pde_(domain.mesh, L, boundary_matrix);
+    std::cout << "pde_ created" << std::endl;
+    
+    DMatrix<double> test_points = read_csv<double>("../data/transport/testPsi/locs.csv");
+    std::cout << "test_points loaded: dimensions " << test_points.rows() << " x " << test_points.cols() << std::endl;
+    
+    SRPDE model_test(pde_, Sampling::pointwise);
+    std::cout << "model_test created" << std::endl;
+    
+    model_test.set_spatial_locations(test_points);
+    std::cout << "spatial locations set" << std::endl;
+    
+    model_test.init_sampling(true); // evaluate Psi() in the new grid
+    std::cout << "sampling initialized" << std::endl;
+
+    DMatrix<double> Psi = model_test.Psi();
+    std::cout << "Psi dimensions: " << Psi.rows() << " x " << Psi.cols() << std::endl;
+
+    for (int i = 0; i < Psi.rows(); ++i) {
+        for (int j = 0; j < Psi.cols(); ++j) {
+            if (Psi(i, j) != 0.0)
+                std::cout << "Psi(" << i << ", " << j << ") = " << Psi(i, j) << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
+    // compute Psi'*Psi
+    DMatrix<double> PsiT_Psi = Psi.transpose() * Psi;
+    std::cout << "PsiT_Psi dimensions: " << PsiT_Psi.rows() << " x " << PsiT_Psi.cols() << std::endl;
+    for (int i = 0; i < PsiT_Psi.rows(); ++i) {
+        for (int j = 0; j < PsiT_Psi.cols(); ++j) {
+            if (PsiT_Psi(i, j) != 0.0)
+                std::cout << "PsiT_Psi(" << i << ", " << j << ") = " << PsiT_Psi(i, j) << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
+    // save Psi to file
+    writeEigenMatrixToCSV("../scripts/Psi()/Psi_fdaPDE.csv", Psi);       
+}
+*/
 /*
 TEST(srpde_test, TransportTestCase0) {
     // define exact solution
     auto solutionExpr = [](SVector<2> x) -> double {
         return 3*sin(x[0]) + 2*x[1];
     };
-
-    for (int n = 30; n <= 70; n += 10){
-        std::cout << "n: " << n << std::endl;
 
     constexpr std::size_t femOrder = 1;
     std::default_random_engine generator(123);
@@ -107,25 +179,23 @@ TEST(srpde_test, TransportTestCase0) {
     pde_.set_dirichlet_bc(dirichletBC);
 
     // define smoothing parameter
-    double lambda = 1e-6; //1; //1e3;
+    double lambda = 1e3; //1; //1e3;
 
-    // prepare data for testing 
-    // const double minVal = 0.0;  // min domain value (unit square)
-    // const double maxVal = 1.0;  // max domain value (unit square)
-    // DVector<double> x = DVector<double>::LinSpaced(n, minVal, maxVal);
-    // DMatrix<double> locs(n*n, 2);   // matrix of spatial locations p_1, p2_, ... p_n
-    // double beta1 = 0.5;
-    // for (int i = 0; i < n; ++i) {
-    //     for (int j = 0; j < n; ++j) {
-    //         locs(i*n + j, 0) = x(i);
-    //         locs(i*n + j, 1) = x(j);
-    //     }
-    // }
+    // load expected once outside of loop
+    DMatrix<double> expected = read_csv<double>("../data/transport/TransportTestCase0/expected.csv");
+    // load test points and values once outside of loop (grid 100x100)
+    DMatrix<double> test_points = read_csv<double>("../data/transport/TransportTestCase0/test_locs.csv");
+    DMatrix<double> test_values = read_csv<double>("../data/transport/TransportTestCase0/test_values.csv");
+
+    // loop on the number of observations
+    for (int n = 30; n <= 70; n += 10){
+        std::cout << "n: " << n << std::endl;
+    
     DMatrix<double> locs = read_csv<double>("../data/transport/TransportTestCase0/locs" + std::to_string(n) + ".csv");
     DMatrix<double> observations = read_csv<double>("../data/transport/TransportTestCase0/observations" + std::to_string(n) + ".csv");
     std::normal_distribution<double> distribution(0.0, 0.05 * (observations.maxCoeff() - observations.minCoeff()));        
 
-    std::size_t constexpr Ntests = 10; //50;
+    std::size_t constexpr Ntests = 50;
     DVector<double> RMSEs_test(Ntests);
     DVector<double> RMSEs_nodes(Ntests);
     for (int i = 0; i < Ntests; i++){
@@ -159,24 +229,36 @@ TEST(srpde_test, TransportTestCase0) {
 
         // model.set_dirichlet_bc(model.A(), model.b());
         model.solve();
-        
+
         // test correctness 
         // evaluate MSE at mesh nodes   
         // // std::cout << "f size: " << model.f().size() << std::endl;
         // // std::cout << "expected size: " << expected.size() << std::endl;
         
         // compute RMSE at mesh nodes
-        DMatrix<double> expected = read_csv<double>("../data/transport/TransportTestCase0/expected.csv");
+        // skip boundary nodes
+        auto boundary_dofs_Dirichlet = pde_.matrix_bc_Dirichlet();
+        std::cout << "boundary dofs: " << boundary_dofs_Dirichlet.rows() << " x " << boundary_dofs_Dirichlet.cols() << std::endl;
+        std::cout << "f size: " << model.f().size() << std::endl;
         double rmse = 0;
         for (int i = 0; i < model.f().size(); ++i) {
+            // if (boundary_dofs_Dirichlet_.coeffRef(i, 0) == 0)
+            // {
+            //     rmse += (model.f()(i) - expected(i, 0)) * (model.f()(i) - expected(i, 0));
+            // }
+            // else
+            // {
+            //     std::cout << "skipping boundary node" << std::endl;
+            // }
             rmse += (model.f()(i) - expected(i, 0)) * (model.f()(i) - expected(i, 0));
         }
-        rmse = std::sqrt(rmse / model.f().size());
+        double size = model.f().size(); // - boundary_dofs_Dirichlet_.rows();
+        rmse = std::sqrt(rmse / size);
         RMSEs_nodes(i) = rmse;
-        
+
         {
         // std::cout << "saving model to file" << std::endl;
-        std::ofstream file("modelf.txt");
+        std::ofstream file("modelf" + std::to_string(n) + ".txt");
         if (file.is_open()){
             for(int i = 0; i < model.f().size(); ++i)
                 file << std::setprecision(17) << model.f()(i) << '\n';
@@ -187,10 +269,6 @@ TEST(srpde_test, TransportTestCase0) {
         }
 
         // evaluate MSE in another grid of test points
-        DMatrix<double> test_points = read_csv<double>("../data/transport/TransportTestCase0/test_locs.csv");
-        // std::cout << "test_points dim " << test_points.rows() << " x " << test_points.cols() << std::endl;
-        DMatrix<double> test_values = read_csv<double>("../data/transport/TransportTestCase0/test_values.csv");
-        // std::cout << "test_values dim " << test_values.rows() << " x " << test_values.cols() << std::endl;
         SRPDE model_test(pde_, Sampling::pointwise);
         model_test.set_spatial_locations(test_points);
         model_test.init_sampling(true); // evaluate Psi() in the new grid
@@ -205,7 +283,7 @@ TEST(srpde_test, TransportTestCase0) {
 
         {
         // std::cout << "saving model to file" << std::endl;
-        std::ofstream file("gridf.txt");
+        std::ofstream file("gridf" + std::to_string(n) + ".txt");
         if (file.is_open()){
             for(int j = 0; j < test_points.rows(); ++j)
                 file << std::setprecision(17) << f_test(j) << '\n';
@@ -358,28 +436,33 @@ TEST(srpde_test, TransportTestCase0_covariates) {
     } // end for n loop 
 }
 */
+
+
 TEST(srpde, TransportTestCase1){
 
-    for (int n = 30; n <= 70; n += 10){
+    for (int n = 6; n <= 14; n += 2){
         std::cout << "n: " << n << std::endl;
     constexpr std::size_t femOrder = 1;
     
     // define PDE coefficients
-    SVector<2> b;  b << 1., 0.;
-    double nu = 1e-6;
+    SVector<2> bExact;  bExact << 1., 1.;
+    SVector<2> b;  b << 1., 1.;
+    double nu = 1e-3;
+    double BL = nu;
+    double stabParam = 1.3672; //1e5; //23.294; //6.03;
     // define exact solution
-    auto solutionExpr = [&nu](SVector<2> x) -> double {
-        return x[0]*x[1]*x[1] - x[1]*x[1]*exp((2*(x[0] - 1))/nu) - x[0]*exp(3*(x[1] - 1)/nu) + exp((2*(x[0] - 1) + 3*(x[1] - 1))/nu);
+    auto solutionExpr = [&BL](SVector<2> x) -> double {
+        return x[0]*x[1]*x[1] - x[1]*x[1]*exp((2*(x[0] - 1))/BL) - x[0]*exp(3*(x[1] - 1)/BL) + exp((2*(x[0] - 1) + 3*(x[1] - 1))/BL);
     };
     // forcing term
     using std::exp;
-    auto forcingExpr = [&nu, &b](SVector<2> x) -> double {
-        return b[0]*(x[1]*x[1] - exp((3*x[1] - 3)/nu) - 2*x[1]*x[1]*exp((2*x[0] - 2)/nu)/nu + 2*exp((2*x[0] + 3*x[1] - 5)/nu)/nu) + b[1]*(2*x[0]*x[1] - 2*x[1]*exp((2*x[0] - 2)/nu) - 3*x[0]*exp((3*x[1] - 3)/nu)/nu + 3*exp((2*x[0] + 3*x[1] - 5)/nu)/nu) - nu*(2*x[0] - 2*exp((2*x[0] - 2)/nu) - 9*x[0]*exp((3*x[1] - 3)/nu)/(nu*nu) - 4*x[1]*x[1]*exp((2*x[0] - 2)/nu)/(nu*nu) + 13*exp((2*x[0] + 3*x[1] - 5)/nu)/(nu*nu));
+    auto forcingExpr = [&nu, &bExact, &BL](SVector<2> x) -> double {
+        return bExact[0]*(x[1]*x[1] - exp((3*x[1] - 3)/BL) - 2*x[1]*x[1]*exp((2*x[0] - 2)/BL)/BL + 2*exp((2*x[0] + 3*x[1] - 5)/BL)/BL) + bExact[1]*(2*x[0]*x[1] - 2*x[1]*exp((2*x[0] - 2)/BL) - 3*x[0]*exp((3*x[1] - 3)/BL)/BL + 3*exp((2*x[0] + 3*x[1] - 5)/BL)/BL) - nu*(2*x[0] - 2*exp((2*x[0] - 2)/BL) - 9*x[0]*exp((3*x[1] - 3)/BL)/(BL*BL) - 4*x[1]*x[1]*exp((2*x[0] - 2)/BL)/(BL*BL) + 13*exp((2*x[0] + 3*x[1] - 5)/BL)/(BL*BL));
     };
     ScalarField<2> forcing(forcingExpr);
     
     // define domain 
-    MeshLoader<Mesh2D> domain("unit_square_32");
+    MeshLoader<Mesh2D> domain("unit_square_64");
         
     //define regularizing PDE
     PDEparameters<decltype(nu), decltype(b)>::destroyInstance();
@@ -394,7 +477,7 @@ TEST(srpde, TransportTestCase1){
     PDE< decltype(domain.mesh), decltype(L), ScalarField<2>, FEM, fem_order<femOrder>, decltype(nu),
             decltype(b)> pde_(domain.mesh, L, boundary_matrix);
     pde_.set_forcing(forcing);
-    pde_.set_stab_param(0.85); //1.075);
+    pde_.set_stab_param(stabParam); //1.075);
     
     // compute boundary condition and exact solution
     DMatrix<double> nodes_ = pde_.dof_coords();
@@ -408,7 +491,7 @@ TEST(srpde, TransportTestCase1){
     pde_.set_dirichlet_bc(dirichletBC);
     
     // define smoothing parameter
-    double lambda = 1e3; //0.1;
+    double lambda = 1e-3; //1e3; //0.1;
     
     // prepare data for testing 
     std::default_random_engine generator(123);
@@ -422,7 +505,7 @@ TEST(srpde, TransportTestCase1){
     for (int i = 0; i < Ntests; i++){
         // add noise to observations (5% of the range of the exact solution values)        
         DMatrix<double> y(n*n, 1);
-        std::normal_distribution<double> distribution(0.0, 0.05 * (observations.maxCoeff() - observations.minCoeff()));
+        // std::normal_distribution<double> distribution(0.0, 0.05 * (observations.maxCoeff() - observations.minCoeff()));
         for (int j = 0; j < n*n; ++j)
             y(j, 0) = observations(j) + distribution(generator);  // generate noisy observations
 
@@ -445,17 +528,20 @@ TEST(srpde, TransportTestCase1){
         // std::cout << "f size: " << model.f().size() << std::endl;
         // std::cout << "expected size: " << expected.size() << std::endl;
 
-        double rmse = 0;
-        for (int i = 0; i < model.f().size(); ++i) {
-            rmse += (model.f()(i) - expected(i, 0)) * (model.f()(i) - expected(i, 0));
-        }
-        rmse = std::sqrt(rmse / model.f().size());
+        // double rmse = 0;
+        // for (int i = 0; i < model.f().size(); ++i) {
+        //     rmse += (model.f()(i) - expected(i, 0)) * (model.f()(i) - expected(i, 0));
+        // }
+        // rmse = std::sqrt(rmse / model.f().size());
+        // RMSEs(i) = rmse;
 
+        // compute the RMSE just by doing the L2 norm of the difference between expected and model.f()
+        double rmse = (expected - model.f()).norm(); // / expected.norm();
         RMSEs(i) = rmse;
 
-        {
+        if(i==0){
         // std::cout << "saving model to file" << std::endl;
-        std::ofstream file("modelf.txt");
+        std::ofstream file("modelf" + std::to_string(n) + ".txt");
         if (file.is_open()){
             for(int i = 0; i < model.f().size(); ++i)
                 file << std::setprecision(17) << model.f()(i) << '\n';
@@ -472,6 +558,157 @@ TEST(srpde, TransportTestCase1){
     writeEigenVectorToCSV("RMSE_" + std::to_string(n) + ".csv", RMSEs);
     }
 }
+*/
+
+/*
+TEST(srpde, TransportTestCase1_Perturbed_kFold){
+
+    for (int n = 5; n <= 25; n += 5){
+        std::cout << "n: " << n << std::endl;
+    constexpr std::size_t femOrder = 1;
+    
+    // define PDE coefficients
+    SVector<2> b;  b << 1., 1.;
+    double nu = 1e-6;
+    double BL = 0.1;
+    
+    // double stabParam = 1e5; 
+    double stabParam = 23.294; 
+    // double stabParam = 6.03;
+
+    // define exact solution
+    auto solutionExpr = [&BL](SVector<2> x) -> double {
+        return x[0]*x[1]*x[1] - x[1]*x[1]*exp((2*(x[0] - 1))/BL) - x[0]*exp(3*(x[1] - 1)/BL) + exp((2*(x[0] - 1) + 3*(x[1] - 1))/BL);
+    };
+    // forcing term
+    using std::exp;
+    auto forcingExpr = [&nu, &b, &BL](SVector<2> x) -> double {
+        return b[0]*(x[1]*x[1] - exp((3*x[1] - 3)/BL) - 2*x[1]*x[1]*exp((2*x[0] - 2)/BL)/BL + 2*exp((2*x[0] + 3*x[1] - 5)/BL)/BL) + b[1]*(2*x[0]*x[1] - 2*x[1]*exp((2*x[0] - 2)/BL) - 3*x[0]*exp((3*x[1] - 3)/BL)/BL + 3*exp((2*x[0] + 3*x[1] - 5)/BL)/BL) - nu*(2*x[0] - 2*exp((2*x[0] - 2)/BL) - 9*x[0]*exp((3*x[1] - 3)/BL)/(BL*BL) - 4*x[1]*x[1]*exp((2*x[0] - 2)/BL)/(BL*BL) + 13*exp((2*x[0] + 3*x[1] - 5)/BL)/(BL*BL));
+    };
+    ScalarField<2> forcing(forcingExpr);
+    
+    // define domain 
+    MeshLoader<Mesh2D> domain("unit_square_64");
+        
+    //define regularizing PDE
+    PDEparameters<decltype(nu), decltype(b)>::destroyInstance();
+    PDEparameters<decltype(nu), decltype(b)> &PDEparams =
+            PDEparameters<decltype(nu), decltype(b)>::getInstance(nu, b);
+    
+    auto L = - nu * laplacian<FEM>() + advection<FEM>(b);
+    
+    // define the boundary with a DMatrix (=0 if Dirichlet, =1 if Neumann, =2 if Robin)
+    DMatrix<short int> boundary_matrix = DMatrix<short int>::Zero(domain.mesh.n_nodes(), 1);
+
+    PDE< decltype(domain.mesh), decltype(L), ScalarField<2>, FEM, fem_order<femOrder>, decltype(nu),
+            decltype(b)> pde_(domain.mesh, L, boundary_matrix);
+    pde_.set_forcing(forcing);
+    pde_.set_stab_param(stabParam);
+    
+    // compute boundary condition and exact solution
+    DMatrix<double> nodes_ = pde_.dof_coords();
+    DMatrix<double> dirichletBC(nodes_.rows(), 1);
+    // DMatrix<double> sol_at_nodes(nodes_.rows(), 1);
+    // set exact sol & dirichlet conditions at PDE level
+    for (int i = 0; i < nodes_.rows(); ++i) {
+        // sol_at_nodes(i) = solutionExpr(nodes_.row(i));
+        dirichletBC(i) = 0.; //solutionExpr(nodes_.row(i));
+    }
+    pde_.set_dirichlet_bc(dirichletBC);
+    
+    // prepare data for testing 
+    std::default_random_engine generator(123);
+
+    DMatrix<double> locs = read_csv<double>("../data/transport/TransportTestCase1/locs" + std::to_string(n) + ".csv");
+    DMatrix<double> observations = read_csv<double>("../data/transport/TransportTestCase1/observations" + std::to_string(n) + ".csv");
+    std::normal_distribution<double> distribution(0.0, 0.05 * (observations.maxCoeff() - observations.minCoeff()));        
+    
+    std::size_t constexpr Ntests = 5;
+    DVector<double> RMSEs(Ntests);
+    for (int i = 0; i < Ntests; i++){
+        // add noise to observations (5% of the range of the exact solution values)        
+        DMatrix<double> y(n*n, 1);
+        // std::normal_distribution<double> distribution(0.0, 0.05 * (observations.maxCoeff() - observations.minCoeff()));
+        for (int j = 0; j < n*n; ++j)
+            y(j, 0) = observations(j) + distribution(generator);  // generate noisy observations
+
+        double optimumLambda = 0.0;
+        std::cout << "n = " << n << ", test " << i << "/" << Ntests << std::endl;
+        // begin test - kFold cross validation
+        {
+            SRPDE model(pde_, Sampling::pointwise);
+            model.set_spatial_locations(locs);
+            // set model's data
+            BlockFrame<double, int> df;
+            df.insert(OBSERVATIONS_BLK, y);
+            model.set_data(df);
+            model.init();    
+            // define KCV engine and search for best lambda which minimizes the model's RMSE
+            std::size_t n_folds = 10; //std::ceil(y.rows() / 10.0);
+            // std::cout << "n = " << n << ", n_folds = " << n_folds << std::endl;
+            std::cout << "n = " << n << ", bservations = " << y.rows() << ", points per fold = " << y.rows() / n_folds << std::endl;
+            KCV kcv(n_folds);
+
+            std::vector<DVector<double>> lambdas;
+            for (double x = -3.0; x <= 3.0; x += 0.5) lambdas.push_back(SVector<1>(std::pow(10, x)));
+            kcv.fit(model, lambdas, RMSE(model));
+            
+            // print results and set optimal lambda
+            optimumLambda = kcv.optimum()[0];
+            std::cout << "n = " << n << ", kcv optimum lambda: " << optimumLambda << std::endl;
+            double optimumLambdaIndex = 0;
+            for (std::size_t i = 0; i < lambdas.size(); ++i) {
+                if (almost_equal(kcv.optimum()[0], lambdas[i][0], 1e-6)) {
+                    std::cout << "n = " << n << ", optimal lambda index: " << i << "/" << lambdas.size() << std::endl;
+                    optimumLambdaIndex = i;
+                    break;
+                }
+            }
+            std::cout << "n = " << n << ", best E[RMSE]: " << kcv.avg_scores()[optimumLambdaIndex] << std::endl;
+        }
+        // solve the model with the optimum lambda found 
+        {
+            SRPDE model(pde_, Sampling::pointwise);
+            model.set_lambda_D(optimumLambda);
+            model.set_spatial_locations(locs);
+            // set model's data
+            BlockFrame<double, int> df;
+            df.insert(OBSERVATIONS_BLK, y);
+            model.set_data(df);
+            // solve smoothing problem
+            model.init();
+            // model.set_dirichlet_bc(model.A(), model.b());
+            model.solve();
+            DVector<double> expected = read_csv<double>("../data/transport/TransportTestCase1/expected.csv");
+            // std::cout << "f size: " << model.f().size() << std::endl;
+            // std::cout << "expected size: " << expected.size() << std::endl;
+
+            double rmse = 0;
+            for (int i = 0; i < model.f().size(); ++i) { rmse += (model.f()(i) - expected(i, 0)) * (model.f()(i) - expected(i, 0)); }
+            rmse = std::sqrt(rmse / model.f().size());
+            RMSEs(i) = rmse;
+
+            if (i == 0){
+            // std::cout << "saving model to file" << std::endl;
+            std::ofstream file("modelf" + std::to_string(n) + ".txt");
+            if (file.is_open()){
+                for(int i = 0; i < model.f().size(); ++i)
+                    file << std::setprecision(17) << model.f()(i) << '\n';
+                file.close();
+            } else {
+                std::cerr << "transport test unable to save solution" << std::endl;
+            }
+            }
+            // EXPECT_TRUE(RMSE < 100);
+            
+        }
+    } // end for Ntests loop
+    // save MRSEs to file
+    writeEigenVectorToCSV("RMSE_" + std::to_string(n) + ".csv", RMSEs);
+    }   // end for n loop
+    EXPECT_TRUE(1);
+}
+*/
 /*
 TEST(srpde, TransportTestCase1_covariates){
     for (int n = 35; n <= 40; n += 5){
@@ -614,14 +851,14 @@ TEST(srpde, TransportTestCase1_covariates){
 /*
 TEST(srpde, TransportTestCase2){
 
-    for (int n = 30; n <= 70; n += 10){
-    std::cout << "n: " << n << std::endl;
-
     constexpr std::size_t femOrder = 1;
+    double nu = 1e-3;
+    double stabParam = 1.7;
+
     std::default_random_engine generator(123);
     
     // define domain 
-    MeshLoader<Mesh2D> domain("unit_square_32");
+    MeshLoader<Mesh2D> domain("unit_square_64");
 
     // define PDE coefficients
     VectorField<2> b_callable;
@@ -643,7 +880,6 @@ TEST(srpde, TransportTestCase2){
         div_b_data(i) = div_b_callable(SVector<2>(quad_nodes.row(i)));
     }
     DiscretizedVectorField<2,2> b_discretized(b_data, div_b_data);
-    double nu = 1e-9;
 
     // forcing term
     auto forcingExpr = [](SVector<2> x) -> double { return 1.; };
@@ -663,45 +899,34 @@ TEST(srpde, TransportTestCase2){
     PDE< decltype(domain.mesh), decltype(L), ScalarField<2>, FEM, fem_order<femOrder>, decltype(nu),
             decltype(b_discretized)> pde_(domain.mesh, L, boundary_matrix);
     pde_.set_forcing(forcing);
-    pde_.set_stab_param(5.0); //2.285);
-    // compute boundary condition and exact solution
-    DMatrix<double> nodes_ = pde_.dof_coords();
-    DMatrix<double> dirichletBC(nodes_.rows(), 1);
-    // set exact sol & dirichlet conditions at PDE level
-    for (int i = 0; i < nodes_.rows(); ++i) {
-        dirichletBC(i) = 0.; // solutionExpr(nodes_.row(i));
-    }
-    pde_.set_dirichlet_bc(dirichletBC);
+    pde_.set_stab_param(stabParam);
+    // set boundary conditions
+    pde_.set_dirichlet_bc(DMatrix<double>::Zero(domain.mesh.n_nodes(), 1));
+    
     // define smoothing parameter
-    double lambda = 1e3;
+    double lambda = 1e-3;
 
-    // // prepare lacation data
-    // const double minVal = 0.0;  // min domain value (unit square)
-    // const double maxVal = 1.0;  // max domain value (unit square)
-    // DVector<double> x = DVector<double>::LinSpaced(n, minVal, maxVal);
-    // DMatrix<double> locs(n*n, 2);   // matrix of spatial locations p_1, p2_, ... p_n
-    // for (int i = 0; i < n; ++i) {
-    //     for (int j = 0; j < n; ++j) {
-    //         locs(i*n + j, 0) = x(j);
-    //         locs(i*n + j, 1) = x(i);
-    //     }
-    // }
+    DVector<double> expected = read_csv<double>("../data/transport/TransportTestCase2/expected.csv");
 
-    // load locations from file
+    for (int n = 6; n <= 14; n += 2){
+    std::cout << "n: " << n << std::endl;
+
+    // import data
     DMatrix<double> locs = read_csv<double>("../data/transport/TransportTestCase2/locs" + std::to_string(n) + ".csv");
-
-    // add noise to observations (5% of the range of the exact solution values)        
+    std::cout << "locs size: " << locs.rows() << " x " << locs.cols() << std::endl;
     DMatrix<double> observations = read_csv<double>("../data/transport/TransportTestCase2/observations" + std::to_string(n) + ".csv");
+    std::cout << "observations size: " << observations.rows() << " x " << observations.cols() << std::endl;
+    // std::normal_distribution<double> distribution(0.0, 0.05 * (observations.maxCoeff() - observations.minCoeff()));        
     
     std::size_t constexpr Ntests = 10;
     DVector<double> RMSEs(Ntests);
     for (int i = 0; i < Ntests; i++){
-        std::normal_distribution<double> distribution(0.0, 0.05 * std::abs(observations.maxCoeff() - observations.minCoeff()));        
-        DMatrix<double> y(observations.rows(), 1);
-        for (int i = 0; i < n*n; ++i) {
-            y(i) = observations(i, 0) + distribution(generator);
-        }
-        // std::cout << "dims observations: " << observations.rows() << " x " << observations.cols() << std::endl;
+        std::cout << "i: " << i << std::endl;
+        // add noise to observations (5% of the range of the exact solution values)        
+        DMatrix<double> y(n*n, 1);
+        std::normal_distribution<double> distribution(0.0, 0.05 * (observations.maxCoeff() - observations.minCoeff()));
+        for (int j = 0; j < n*n; ++j)
+            y(j, 0) = observations(j) + distribution(generator);  // generate noisy observations
 
         // begin test 
         {   
@@ -714,46 +939,36 @@ TEST(srpde, TransportTestCase2){
         model.set_data(df);
         // solve smoothing problem
         model.init();
-
-        // // optimize GCV index here
-        // auto GCV = model.gcv<ExactEDF>();
-        // std::vector<DVector<double>> lambdas = {SVector<1>(1e-6), SVector<1>(1e-3), SVector<1>(1e-2), SVector<1>(1e-1),
-        //                                         SVector<1>(1.), SVector<1>(5.), SVector<1>(10.), SVector<1>(25.), 
-        //                                         SVector<1>(50.), SVector<1>(1e2), SVector<1>(1e3)};
-        // Grid<fdapde::Dynamic> opt;
-        // std::cout << "Optimizing GCV..." << std::endl;
-        // opt.optimize(GCV, lambdas);
-        // auto best_lambda = opt.optimum()(0,0);
-        // std::cout << "Best lambda: " << best_lambda << std::endl;
-        // model.set_lambda_D(best_lambda);
-
         // model.set_dirichlet_bc(model.A(), model.b());
         model.solve();
+        // result from the perturbed PDE
         
-        // test correctness
-        DMatrix<double> expected = read_csv<double>("../data/transport/TransportTestCase2/expected.csv");
-
         // std::cout << "f size: " << model.f().size() << std::endl;
         // std::cout << "expected size: " << expected.size() << std::endl;
-        double rmse = 0;
-        for (int i = 0; i < model.f().size(); ++i) {
-            rmse += (model.f()(i) - expected(i, 0)) * (model.f()(i) - expected(i, 0));
-        }
-        rmse = std::sqrt(rmse / model.f().size());
-        // std::cout << "RMSE: " << rmse << std::endl;
+
+        // double rmse = 0;
+        // for (int i = 0; i < model.f().size(); ++i) {
+        //     rmse += (model.f()(i) - expected(i, 0)) * (model.f()(i) - expected(i, 0));
+        // }
+        // rmse = std::sqrt(rmse / model.f().size());
+        // RMSEs(i) = rmse;
+
+        // compute rmse just with the norm between expected and model.f()
+        double rmse = (model.f() - expected).norm();
         RMSEs(i) = rmse;
 
-        // export model.f() to file
-        std::ofstream file("modelf.txt");
+        if(i==0){
+        // std::cout << "saving model to file" << std::endl;
+        std::ofstream file("modelf" + std::to_string(n) + ".txt");
         if (file.is_open()){
-            for(int i = 0; i < model.f().size(); ++i) {
+            for(int i = 0; i < model.f().size(); ++i)
                 file << std::setprecision(17) << model.f()(i) << '\n';
-            }
             file.close();
         } else {
             std::cerr << "transport test unable to save solution" << std::endl;
         }
-        // EXPECT_TRUE(rmse < 100);
+        }
+        // EXPECT_TRUE(RMSE < 100);
         EXPECT_TRUE(1);
         }
     } // end for

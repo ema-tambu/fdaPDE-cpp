@@ -1,0 +1,29 @@
+Psi(7, 11) = 0.333335
+Psi(4, 12) = 0.666665
+Psi(5, 14) = 0.666665
+Psi(6, 15) = 0.33333
+Psi(6, 16) = 0.333335
+Psi(7, 17) = 0.666665
+Psi(8, 18) = 0.666665
+Psi(9, 19) = 0.333335
+Psi(9, 20) = 0.33333
+Psi(10, 21) = 0.666665
+Psi(11, 22) = -5.55112e-17
+Psi(11, 23) = 0.666665
+Psi(8, 24) = 0.333335
+Psi(13, 25) = -5.55112e-17
+Psi(9, 26) = 0.333335
+Psi(10, 27) = 4.33681e-17
+Psi(14, 27) = -1.11022e-16
+Psi(10, 28) = 0.333335
+Psi(11, 29) = 0.333335
+Psi(12, 30) = 1
+Psi(13, 31) = 0.333335
+Psi(13, 32) = 0.666665
+Psi(14, 33) = 0.666665
+Psi(14, 34) = 0.333335
+Psi(15, 35) = 1
+times: compile 0.049s, execution 0.012s,  mpirank:0
+ CodeAlloc : nb ptr  3694,  size :474768 mpirank: 0
+Ok: Normal End
+ try getConsole C:\Users\emata\Documents\MEGA\tesi\fdaPDE-cpp\test\scripts\Psi()\Psi().edp

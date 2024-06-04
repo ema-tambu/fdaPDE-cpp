@@ -1,0 +1,39 @@
+// load "ffrandom"
+
+for(int i = 0; i < 10; i++){
+    cout << " ranx = " << randreal3() << endl; 
+}
+
+// box muller transformation for N(0,1) from U(0,1)
+
+int n = 500;
+real[int] U1(n);
+real[int] U2(n);
+
+for(int i = 0; i < n; i++){
+    U1[i] = randreal3();
+    U2[i] = randreal3();
+}
+
+cout << "Pi = " << pi << endl;
+
+real[int] X(n);
+real[int] Y(n);
+
+real k = 0.1;
+
+for(int i = 0; i < n; i++){
+    X[i] = k*sqrt(-2.0 * log(U1[i])) * cos(2.0 * pi * U2[i]);
+    Y[i] = k*sqrt(-2.0 * log(U1[i])) * sin(2.0 * pi * U2[i]);
+}
+
+cout << "data = np.array([" << endl;
+for (int i = 0; i < n; i++){
+    cout << X[i] << ", " << Y[i] << ", ";
+}
+cout << "])" << endl;
+
+real m = X[0];
+for (int i = 0; i < n-1; i++)
+    m = max(m, X[i]);
+cout << "max = " << m << endl;
