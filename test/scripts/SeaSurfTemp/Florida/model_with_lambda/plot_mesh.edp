@@ -1,0 +1,43 @@
+//
+
+mesh Th = readmesh("../../../../readMesh/data/emanuele/lasca/mesh.mesh");
+plot(Th, wait = 1);
+
+mesh Qh = readmesh("../../../../readMesh/data/emanuele/fine/mesh.mesh");
+plot(Qh, wait=1);
+
+mesh Xh = readmesh("../../../../readMesh/data/emanuele/mesh_tomasetto.mesh");
+plot(Xh, wait=1);
+
+
+fespace Vh(Th, P1);
+
+Vh uh, vh;
+
+uh = 0;
+vh = 0;
+
+// solve Poisson(u, v) = int2d(Th)(dx(u)*dx(v) + dy(u)*dy(v)) - int2d(Th)(1*v);
+varf Poisson(u, v) = 
+    int2d(Th)(
+        dx(u)*dx(v) + dy(u)*dy(v)
+    ) 
+    - int2d(Th)(
+        1*v
+    )
+    + on(1, u=0);
+
+matrix A = Poisson(Vh, Vh);
+real[int] b = Poisson(0, Vh);
+
+
+real[int] solution(Vh.ndof);
+solution = 0.0;
+
+solution = A^-1 * b;
+
+uh[] = solution(0:Vh.ndof-1);
+
+plot([uh], value = 1, fill = 1, wait = 0, cmm = "sol");
+
+cout << uh(-81.016, 25.406)<< endl;

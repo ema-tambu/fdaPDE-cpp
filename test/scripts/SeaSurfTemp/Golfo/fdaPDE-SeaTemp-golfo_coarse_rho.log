@@ -1,0 +1,27 @@
+  318 :     file.precision(17);
+  319 :     for (int k = 0; k < Ndofs; k++){
+  320 :         file << fhat(k) << endl;
+  321 :     }
+  322 : }
+  323 :
+  324 :
+  325 : }   // end of the loop over rhoÿ sizestack + 1024 =13268  ( 12244 )
+ 
+ ## Warning: Mesh without geometry we construct a geometry (theta =-57.2958 degres )
+  --  mesh:  Nb of Triangles =   8838, Nb of Vertices 4573
+ 
+Ndofs = 4573
+measureDomain = 113.77439899290015
+A = (4573x4573)
+Aadj = (4573x4573)
+S = (4573x4573)
+Sadj = (4573x4573)
+R = (4573x4573)
+S1 = (4573x4573)
+rho@errorL2@RMSE_63
+0.81999999999999995@107.7788246529837@0.96864215309470936
+times: compile 0.191s, execution 137.73899999999998s,  mpirank:0
+ ######## We forget of deleting   -83 Nb pointer,   0Bytes  ,  mpirank 0, memory leak =0
+ CodeAlloc : nb ptr  4779,  size :523016 mpirank: 0
+Ok: Normal End
+ try getConsole C:\Users\emata\Documents\MEGA\tesi\fdaPDE-cpp\test\scripts\SeaSurfTemp\Golfo\fdaPDE-SeaTemp-golfo_coarse_rho.edp

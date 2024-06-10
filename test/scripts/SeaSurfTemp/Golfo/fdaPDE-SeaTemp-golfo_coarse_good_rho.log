@@ -1,0 +1,27 @@
+  209 : block11 = rho * block11;
+  210 : block11 = (1.0/measureDomain) * block11;
+  211 : block11 = block11 + Psi;
+  212 : block11 = Psi' * block11;
+  213 : block11 = (1.0/(nLocs)) * block11;
+  214 :
+  215 : matrix Sigma = [[block11, block12], [block21, block22]];
+  216 :
+  217 : // assemble the big vector b
+  218 : real[int] b1(Ndofs);
+  219 : b1 = 0.0;
+  220 : matrix aux = Xi';
+  221 : aux = rho * aux;
+  222 : aux = (1.0/measureDomain) * aux;
+  223 : aux = aux + Psi';
+  224 : aux = (1.0/(nLocs))*aux;
+  225 : b1 = aux * observationsReduced The Identifier observationsReduced does not exist
+ 
+ Error line number 225, in file C:\Users\emata\Documents\MEGA\tesi\fdaPDE-cpp\test\scripts\SeaSurfTemp\Golfo\fdaPDE-SeaTemp-golfo_coarse_good_rho.edp, before  token observationsReduced
+ 
+  current line = 225
+Compile error :
+        line number :225, observationsReduced
+error Compile error :
+        line number :225, observationsReduced
+ code = 1 mpirank: 0
+ try getConsole C:\Users\emata\Documents\MEGA\tesi\fdaPDE-cpp\test\scripts\SeaSurfTemp\Golfo\fdaPDE-SeaTemp-golfo_coarse_good_rho.edp

@@ -1,0 +1,29 @@
+RMSE_63 = 0.97535652150997376
+ 
+ 
+ nu = 13.799999999999994
+assembling linear system...
+time to build blocks = 479
+time to assemble Sigma = 481
+time to assemble b = 0
+setting Dirichlet b.c. in the block system...
+time to set Dirichlet b.c. = 2
+solving linear system...
+time to solve linear system = 16
+error = 109.71277622422548
+RMSE_63 = 0.97721539498872623
+ 
+ 
+ nu = 13.899999999999993
+assembling linear system...
+time to build blocks = 499
+time to assemble Sigma = 502
+time to assemble b = 0
+setting Dirichlet b.c. in the block system...
+time to set Dirichlet b.c. = 1
+solving linear system...
+time to solve linear system = 15
+error = 110.1723235612143
+RMSE_63 = 0.9792471729871669
+times: compile 0.20100000000000001s, execution 518.38900000000001s,  mpirank:0
+ try getConsole C:\Users\emata\Documents\MEGA\tesi\fdaPDE-cpp\test\scripts\SeaSurfTemp\Golfo\fdaPDE-SeaTemp-golfo_coarse_loop_nu.edp

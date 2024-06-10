@@ -1,0 +1,354 @@
+load "ffrandom"
+srandomdev(); // set a true ramdom seed 
+
+string path = "../../../../../../readMesh/data/emanuele/";
+string meshName = "coarse";
+int nDirichletNodes = 48;
+bool setDirichlet = 1;
+mesh Th = readmesh(path + meshName + "/mesh.mesh");
+
+plot(Th, wait = 1);
+
+cout.precision(17);
+
+fespace Vh(Th, P1);  // mixed finite elements but with the same space for both variables
+Vh fh, gh, vh; // one test function vh is enough for both FEMs
+
+Vh Err;
+
+int Ndofs = Vh.ndof;
+cout << "\nNdofs = " << Ndofs << endl;
+
+real measureDomain = Th.measure;
+cout << "measureDomain = " << measureDomain << endl;
+measureDomain = 1;
+
+// Define the PDE parameters
+// best nu found by tomasetto = 0.032890
+real nu = 0.032890; //0.02187505;
+
+real quadratureOrder = 7;
+real stabParam = 0.0;
+
+// load the expected solution from SST file and cast it into an object of type Vh
+// read SST field
+ifstream inputSST(path + meshName + "/SST.txt");
+real[int] vecSST(Th.nv);
+for (int i = 0; i < Th.nv; i++){
+    inputSST >> vecSST(i);
+}
+// transform vecSST from kelvin to celsius
+for (int i = 0; i < Th.nv; i++){
+    vecSST(i) = vecSST(i) - 273.15;
+}
+Vh expectedSST;
+expectedSST[] = vecSST;
+    
+// define forcing term
+func f = 0.; //0.01;
+
+// import transport data and cast them into an object of type Vh
+// read transport field
+ifstream inputBetaX(path + meshName + "/Beta_X.txt");
+real[int] vecBetaX(Th.nv);
+
+ifstream inputBetaY(path + meshName + "/Beta_Y.txt");
+real[int] vecBetaY(Th.nv);
+
+for(int i = 0; i < Th.nv; i++){
+	inputBetaX >> vecBetaX(i);
+	inputBetaY >> vecBetaY(i);
+}
+
+Vh bx, by;
+
+bx[] = vecBetaX;
+by[] = vecBetaY;
+
+// SUPG stabilization parameter
+fespace Xh(Th, P0);
+Xh tauK, normb;
+normb = sqrt (bx^2 + by^2);
+tauK = stabParam*0.5*hTriangle/(normb + 1.e-10);
+
+// assemble matrices for block linear system
+varf stiff(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        nu * (dx(phiJ)*dx(phiI) + dy(phiJ)*dy(phiI))
+        + bx*dx(phiJ)*phiI + by*dy(phiJ)*phiI
+    )
+    + int2d(Th, qforder=quadratureOrder)(
+        f * phiI
+    );
+
+varf stiffAdjoint(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        nu * (dx(phiJ)*dx(phiI) + dy(phiJ)*dy(phiI))
+        - bx*dx(phiJ)*phiI - by*dy(phiJ)*phiI
+    );
+
+varf stiffStab(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        - tauK*nu*(dxx(phiJ) + dyy(phiJ))*(bx*dx(phiI) + by*dy(phiI))  // diffusion SUPG
+        + tauK*(bx*dx(phiJ) + by*dy(phiJ))*(bx*dx(phiI) + by*dy(phiI)) // transport SUPG
+    )
+    + int2d(Th, qforder=quadratureOrder)(
+        + tauK*f*(bx*dx(phiI) + by*dy(phiI))   // forcing SUPG
+    );
+
+varf stiffStabAdjoint(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        tauK*nu*(dxx(phiJ) + dyy(phiJ))*(bx*dx(phiI) + by*dy(phiI))  // diffusion SUPG
+        + tauK*(bx*dx(phiJ) + by*dy(phiJ))*(bx*dx(phiI) + by*dy(phiI)) // transport SUPG
+    );
+
+varf mass(phiJ, phiI) = 
+    int2d(Th, qforder = quadratureOrder)(
+        phiJ*phiI
+    );
+
+varf massStab(phiJ, phiI) = 
+    int2d(Th, qforder = quadratureOrder)(
+        tauK*(phiJ)*(bx*dx(phiI) + by*dy(phiI))
+    );
+
+matrix A = stiff(Vh, Vh);
+
+matrix Aadj = stiffAdjoint(Vh, Vh);
+
+real[int] U = stiff(0, Vh);
+
+matrix S = stiffStab(Vh, Vh);
+
+matrix Sadj = stiffStabAdjoint(Vh, Vh);
+
+real[int] Us = stiffStab(0, Vh);
+
+matrix R = mass(Vh, Vh);
+
+matrix S1 = massStab(Vh, Vh);
+
+// print the dimensions of the matrices (check)
+cout << "A = (" << A.n << "x" << A.m << ")" << endl;
+cout << "Aadj = (" << Aadj.n << "x" << Aadj.m << ")" << endl;
+cout << "S = (" << S.n << "x" << S.m << ")" << endl;
+cout << "Sadj = (" << Sadj.n << "x" << Sadj.m << ")" << endl;
+cout << "R = (" << R.n << "x" << R.m << ")" << endl;
+cout << "S1 = (" << S1.n << "x" << S1.m << ")" << endl;
+
+// define number of locations in the domain
+int nLocs = 30;
+
+// read locations
+real[int] locs(nLocs*2); //(x, y) * nLocs 
+{
+    ifstream file(path + meshName + "/locations_flattened.txt");
+    string line;
+    // Read by line.
+    for (int k = 0; k < nLocs*2; k++){
+        getline(file, line);
+        locs(k) = atof(line);
+    }
+}
+// read observations
+real[int] observations(nLocs);
+{
+    ifstream file(path + meshName + "/observations.txt");
+    string line;
+    // Read by line.
+    for (int k = 0; k < nLocs; k++){
+        getline(file, line);
+        observations(k) = atof(line);
+    }
+}
+
+// Load Dirichlet nodes
+ifstream dirichletNodesFile(path + meshName + "/dirichlet_nodes.txt");
+int[int] dirichletNodesVec(Th.nv);
+for(int i = 0; i < nDirichletNodes; i++){
+    dirichletNodesFile >> dirichletNodesVec(i);
+}
+
+cout << "rho@location@errorL2@RMSE_" << nLocs << "@LOOCVerr" << endl;
+
+// for (real rho = 0.217; rho <= 0.219; rho += 0.0001){
+for (real rho = 0.241; rho <= 0.241; rho += 0.001){
+
+// start building the blocks of the big matrix Sigma that do not depend on locations
+
+matrix block12 = Aadj + Sadj;
+block12 = rho * block12;
+block12 = (1.0/measureDomain) * block12;
+
+matrix block21 = A + S;
+block21 = (1.0 - rho) * block21;
+
+matrix block22 = - R - S1;
+
+// Leave one out cross validation loop for a legal measure of the error
+for (int outLoc = 0; outLoc < nLocs; outLoc++){
+// cout << "\n\nLeaving out location " << outLoc << ":" << endl;
+
+// resize the observations removing the outLoc
+real[int] observationsReduced(nLocs - 1);
+int skipOne = 0;
+for (int i = 0; i < nLocs; i++){
+    if (i != outLoc){
+        observationsReduced(i - skipOne) = observations(i);
+    } else {
+        skipOne = 1;
+    }
+}
+
+nLocs = nLocs - 1; // reduce dim of 1
+
+// build the matrices Psi and Xi and evaluate them at locations
+real t0 = time();
+
+Vh u = 0; // handle function on the FEM space to evaluate lagrangian basis at locations
+matrix Psi; Psi.resize(nLocs, Ndofs);
+matrix Xi; Xi.resize(nLocs, Ndofs);
+for (int i = 0; i < Ndofs; i++){
+    u[][i] = 1; // set basis function i to 1
+    //loop over locations 
+    int skipOne = 0;
+    for (int j = 0; j < nLocs; j++){
+        if (j != outLoc){
+            // cout << "evaluating basis " << i << " at location " << j << endl;
+            real xLoc = locs(2*j - skipOne);
+            real yLoc = locs(2*j+1 - skipOne);
+            real PsiIJ = u(xLoc, yLoc);
+            Psi(j, i) = PsiIJ;
+            real XiIJ = - tauK(xLoc, yLoc) * (bx(xLoc, yLoc) * dx(u)(xLoc, yLoc) + by(xLoc, yLoc) * dy(u)(xLoc, yLoc));
+            // if (XiIJ != 0.00000000000000000){ cout << "i = " << i << ", j = " << j << ", XiIJ = " << XiIJ << endl; }
+            Xi(j - skipOne, i) = XiIJ;
+        } else {
+            skipOne = 1;
+        }
+    }
+    u[][i] = 0; // reset basis function i to 0
+}
+// cout << "Psi = (" << Psi.n << "x" << Psi.m << ")" << endl;
+// cout << "Xi = (" << Xi.n << "x" << Xi.m << ")" << endl;
+
+// assemble the big matrix Sigma
+// cout << "assembling linear system..." << endl;
+matrix block11 = Xi;
+block11 = rho * block11;
+block11 = (1.0/measureDomain) * block11;
+block11 = block11 + Psi;
+block11 = Psi' * block11;
+block11 = (1.0/(nLocs)) * block11;
+
+matrix Sigma = [[block11, block12], [block21, block22]];
+
+// assemble the big vector b
+real[int] b1(Ndofs);
+b1 = 0.0;
+matrix aux = Xi';
+aux = rho * aux;
+aux = (1.0/measureDomain) * aux;
+aux = aux + Psi';
+aux = (1.0/(nLocs))*aux;
+b1 = aux * observationsReduced;
+
+real[int] b2(Ndofs);
+b2 = U + Us;
+
+real[int] b = [b1, b2];
+
+// set Dirichlet boundary conditions in the big system
+if (setDirichlet){
+// cout << "setting Dirichlet b.c. in the block system..." << endl;
+for (int i = 0; i < nDirichletNodes; i++){
+    int currentDof = dirichletNodesVec(i);
+    // cout << "setting Dirichlet b.c. to line = " << currentDof << endl;
+
+    for (int k = 0; k < Ndofs; k++){
+        Sigma(currentDof, k) = 0;           // block (1, 1)
+        Sigma(currentDof, k + Ndofs) = 0;   // block (1, 2)
+
+        Sigma(currentDof + Ndofs, k) = 0;   // block (2, 1)
+        Sigma(currentDof + Ndofs, k + Ndofs) = 0;   // block (2, 2)
+    }
+    Sigma(currentDof, currentDof) = 1;
+    Sigma(currentDof + Ndofs, currentDof + Ndofs) = 1;
+    
+    // set Dirichlet datum on rhs
+    real boundaryDatum = expectedSST[][currentDof];
+    // cout << "boundaryDatum = " << boundaryDatum << endl;
+    // cout << "expectedVecSST = " << vecSST(currentDof) << endl;
+    b(currentDof) = boundaryDatum; // temperature of the sea surface at the shorelines
+    b(currentDof + Ndofs) = 0;
+}
+}
+
+real[int] solution(Ndofs*2);
+solution = 0.0;
+
+set(Sigma, solver = UMFPACK);
+// set(Sigma, solver = LU);
+solution = Sigma^-1 * b;
+// cout << "solved" << endl;
+
+fh[] = solution(0:Ndofs-1);
+// gh[] = solution(Ndofs:2*Ndofs-1);
+
+// plot([fh], value = 1, fill = 1, wait = 1, cmm = "fh");
+// plot([gh], value = 1, fill = 1, wait = 1, cmm = "gh");
+// plot([expectedSST], value = 1, fill = 1, wait = 1, cmm = "expectedSST");
+// // compute fh - expectedSST to have an idea of the error
+// {
+// Vh error;
+// error[] = fh[] - expectedSST[];
+// // plot the error
+// plot([error], value = 1, fill = 1, wait = 1, cmm = "error");
+// }
+
+varf massErr(psiJ, psiI) = int2d(Th)(psiJ*psiI);
+matrix M = massErr(Vh, Vh);
+real[int] prod(Ndofs);
+
+func real error(){
+  // store increments in incr variables
+  Err[] = expectedSST[];
+  Err[] -= fh[];
+
+  for (int i = 0; i < Ndofs; ++i)
+    prod[i] = Err[][i]*Err[][i];
+
+  real[int] temp(Ndofs);
+  temp = M*prod;
+
+  real err2 = 0;
+
+  for (int i = 0; i< Ndofs; ++i)
+      err2 += temp[i];
+
+  return err2;
+}
+
+real errL2;
+errL2 = error();
+
+// compute the RMSE
+real rmse = 0;
+for (int i = 0; i < Ndofs; i++){
+    rmse += pow(vecSST(i) - solution(i), 2);
+}
+rmse = sqrt(rmse/Ndofs);
+
+// compute error on the locaiton left out   
+real xOutLoc = locs(2*outLoc);
+real yOutLoc = locs(2*outLoc+1);
+real expectedOutLoc = expectedSST(xOutLoc, yOutLoc);
+real computedOutLoc = fh(xOutLoc, yOutLoc);
+real errorOutLoc = sqrt(pow(expectedOutLoc - computedOutLoc, 2));
+
+// cout << outLoc << "@" << errL2 << "@" << rmse << "@" << errorOutLoc << endl;
+cout << rho << "@" << outLoc << "@" << errL2 << "@" << rmse << "@" << errorOutLoc << endl;
+
+nLocs = nLocs + 1; // restore the dimension of the locations
+}   // end of the loop over the locations
+
+}   // end of the loop over rho

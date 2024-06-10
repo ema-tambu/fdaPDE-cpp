@@ -1,0 +1,267 @@
+load "ffrandom"
+srandomdev(); // set a true ramdom seed 
+
+string meshName = "lasca"; //lasca, fine, tomasetto, golfo
+int nDirichletNodes = 34;// 48; // number of Dirichlet nodes (it denpends on the mesh you're loading) 34
+bool setDirichlet = 1; // set Dirichlet boundary conditions in the big system
+mesh Th = readmesh("../../../../readMesh/data/emanuele/" + meshName + "/mesh.mesh");
+
+plot(Th, wait = 1);
+
+cout.precision(17);
+
+fespace Vh(Th, P1);  // mixed finite elements but with the same space for both variables
+Vh fh, gh, vh; // one test function vh is enough for both FEMs
+
+int Ndofs = Vh.ndof;
+cout << "\nNdofs = " << Ndofs << endl;
+
+// Define the PDE parameters
+// real nu = 0.02; //0.02187505; //0.032890; // diffusion coefficient, we need to retrieve the anisotropic diffusion tensor
+
+real quadratureOrder = 7;
+real stabParam = 0.;
+real lambda = 0.15; // optimal value found by Tomasetto (is it lambda or rho?)
+
+// define number of locations in the domain
+int nLocs = 30;
+
+// define forcing term
+func f = 0.; //0.01; 
+
+// load the expected solution from SST file and cast it into an object of type Vh
+// read SST field
+ifstream inputSST("../../../../readMesh/data/emanuele/" + meshName + "/SST.txt");
+real[int] vecSST(Th.nv);
+for (int i = 0; i < Th.nv; i++){
+    inputSST >> vecSST(i);
+}
+// transform vecSST from kelvin to celsius
+for (int i = 0; i < Th.nv; i++){
+    vecSST(i) = vecSST(i) - 273.15;
+}
+Vh expectedSST;
+expectedSST[] = vecSST;
+
+
+// import transport data and cast them into an object of type Vh
+// read transport field
+ifstream inputBetaX("../../../../readMesh/data/emanuele/" + meshName + "/Beta_X.txt");
+real[int] vecBetaX(Th.nv);
+
+ifstream inputBetaY("../../../../readMesh/data/emanuele/" + meshName + "/Beta_Y.txt");
+real[int] vecBetaY(Th.nv);
+
+for(int i = 0; i < Th.nv; i++){
+	inputBetaX >> vecBetaX(i);
+	inputBetaY >> vecBetaY(i);
+}
+
+Vh bx, by;
+
+bx[] = vecBetaX;
+by[] = vecBetaY;
+
+// SUPG stabilization parameter
+fespace Xh(Th, P0);
+Xh tauK, normb;
+normb = sqrt (bx^2 + by^2);
+tauK = stabParam*0.5*hTriangle/(normb + 1.e-10);
+
+// read locations
+real[int] locs(nLocs*2); //(x, y) * nLocs 
+{
+    ifstream file("../../../../readMesh/data/emanuele/" + meshName + "/locations.txt");
+    string line;
+    // Read by line.
+    for (int k = 0; k < nLocs*2; k++){
+        getline(file, line);
+        locs(k) = atof(line);
+    }
+}
+
+// build the matrices Psi and Xi and evaluate them at locations
+cout << "building Psi and Xi..." << endl;
+real t0 = time();
+
+Vh u = 0; // handle function on the FEM space to evaluate lagrangian basis at locations
+matrix Psi; Psi.resize(nLocs, Ndofs);
+matrix Xi; Xi.resize(nLocs, Ndofs);
+for (int i = 0; i < Ndofs; i++){
+    u[][i] = 1; // set basis function i to 1
+    //loop over locations 
+    for (int j = 0; j < nLocs; j++){
+        real xLoc = locs(2*j);
+        real yLoc = locs(2*j+1);
+        real PsiIJ = u(xLoc, yLoc);
+        Psi(j, i) = PsiIJ;
+        real XiIJ = - tauK(xLoc, yLoc) * lambda * (bx(xLoc, yLoc) * dx(u)(xLoc, yLoc) + by(xLoc, yLoc) * dy(u)(xLoc, yLoc));
+        Xi(j, i) = XiIJ;
+    }
+    u[][i] = 0; // reset basis function i to 0
+}
+cout << "Psi = (" << Psi.n << "x" << Psi.m << ")" << endl;
+cout << "Xi = (" << Xi.n << "x" << Xi.m << ")" << endl;
+
+// read observations
+cout << "importing observations..." << endl;
+real[int] observations(nLocs);
+{
+    ifstream file("../../../../readMesh/data/emanuele/" + meshName + "/observations.txt");
+    string line;
+    // Read by line.
+    for (int k = 0; k < nLocs; k++){
+        getline(file, line);
+        observations(k) = atof(line);
+    }
+}
+
+// import Dirichlet nodes
+ifstream dirichletNodesFile("../../../../readMesh/data/emanuele/" + meshName + "/dirichlet_nodes.txt");
+int[int] dirichletNodesVec(Th.nv);
+for(int i = 0; i < nDirichletNodes; i++){
+    dirichletNodesFile >> dirichletNodesVec(i);
+}
+
+// nu = 0.05861
+for ( real nu = 0.0585; nu <= 0.0587; nu += 0.00001 ) {
+
+cout << "nu = " << nu << endl;
+// assemble matrices for block linear system
+varf stiff(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        nu * (dx(phiJ)*dx(phiI) + dy(phiJ)*dy(phiI))
+        + bx*dx(phiJ)*phiI + by*dy(phiJ)*phiI
+    )
+    + int2d(Th, qforder=quadratureOrder)(
+        f * phiI
+    );
+    // neumann homogeneous boundary condition everywhere, dirichlet b.c. in the big system
+
+varf stiffAdjoint(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        nu * (dx(phiJ)*dx(phiI) + dy(phiJ)*dy(phiI))
+        - bx*dx(phiJ)*phiI - by*dy(phiJ)*phiI
+    );
+    // neumann homogeneous boundary condition everywhere, dirichlet b.c. in the big system
+
+varf stiffStab(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        - tauK*nu*(dxx(phiJ) + dyy(phiJ))*(bx*dx(phiI) + by*dy(phiI))  // diffusion SUPG
+        + tauK*(bx*dx(phiJ) + by*dy(phiJ))*(bx*dx(phiI) + by*dy(phiI)) // transport SUPG
+    )
+    + int2d(Th, qforder=quadratureOrder)(
+        + tauK*f*(bx*dx(phiI) + by*dy(phiI))   // forcing SUPG
+    );
+    // neumann homogeneous boundary condition everywhere, dirichlet b.c. in the big system
+
+varf stiffStabAdjoint(phiJ, phiI) =
+    int2d(Th, qforder=quadratureOrder)(
+        tauK*nu*(dxx(phiJ) + dyy(phiJ))*(bx*dx(phiI) + by*dy(phiI))  // diffusion SUPG
+        + tauK*(bx*dx(phiJ) + by*dy(phiJ))*(bx*dx(phiI) + by*dy(phiI)) // transport SUPG
+    );
+    // neumann homogeneous boundary condition everywhere, dirichlet b.c. in the big system
+
+varf mass(phiJ, phiI) = 
+    int2d(Th, qforder = quadratureOrder)(
+        phiJ*phiI
+    );
+    // neumann homogeneous boundary condition everywhere, dirichlet b.c. in the big system
+
+varf massStab(phiJ, phiI) = 
+    int2d(Th, qforder = quadratureOrder)(
+        tauK*(phiJ)*(bx*dx(phiI) + by*dy(phiI))
+    );
+    // neumann homogeneous boundary condition everywhere, dirichlet b.c. in the big system
+
+matrix A = stiff(Vh, Vh);
+
+matrix Aadj = stiffAdjoint(Vh, Vh);
+
+real[int] U = stiff(0, Vh);
+
+matrix S = stiffStab(Vh, Vh);
+
+matrix Sadj = stiffStabAdjoint(Vh, Vh);
+
+real[int] Us = stiffStab(0, Vh);
+
+matrix R = mass(Vh, Vh);
+
+matrix S1 = massStab(Vh, Vh);
+
+// assemble the big matrix Sigma
+
+matrix block11 = Psi + Xi;
+block11 = Psi' * block11;
+block11 = (1.0/(nLocs)) * block11;
+
+matrix block12 = Aadj + Sadj;
+block12 = lambda * block12;
+
+matrix block21 = A + S;
+
+matrix block22 = - R - S1;
+
+real tblocks = time();
+
+matrix Sigma = [[block11, block12], [block21, block22]];
+
+real t2 = time();
+
+// assemble the big vector b
+real[int] b1(Ndofs);
+b1 = 0.0;
+matrix aux = Psi' + Xi';
+aux = (1.0/(nLocs))*aux;
+b1 = aux * observations;
+
+real[int] b2(Ndofs);
+b2 = U + Us;
+
+real[int] b = [b1, b2];
+
+// set Dirichlet boundary conditions in the big system
+for (int i = 0; i < nDirichletNodes; i++){
+    int currentDof = dirichletNodesVec(i);
+    // cout << "setting Dirichlet b.c. to line = " << currentDof << endl;
+
+    for (int k = 0; k < Ndofs; k++){
+        Sigma(currentDof, k) = 0;           // block (1, 1)
+        Sigma(currentDof, k + Ndofs) = 0;   // block (1, 2)
+
+        Sigma(currentDof + Ndofs, k) = 0;   // block (2, 1)
+        Sigma(currentDof + Ndofs, k + Ndofs) = 0;   // block (2, 2)
+    }
+    Sigma(currentDof, currentDof) = 1;
+    Sigma(currentDof + Ndofs, currentDof + Ndofs) = 1;
+    
+    // set Dirichlet datum on rhs
+    real boundaryDatum = expectedSST[][currentDof];
+    b(currentDof) = boundaryDatum; // temperature of the sea surface at the shorelines
+    b(currentDof + Ndofs) = 0;
+}
+
+real[int] solution(Ndofs*2);
+solution = 0.0;
+
+set(Sigma, solver = UMFPACK);
+// set(Sigma, solver = LU);
+
+solution = Sigma^-1 * b;
+
+fh[] = solution(0:Ndofs-1);
+gh[] = solution(Ndofs:2*Ndofs-1);
+
+// plot([fh], value = 1, fill = 1, wait = 1, cmm = "fh");
+// plot([expectedSST], value = 1, fill = 1, wait = 1, cmm = "expectedSST");
+
+// compute the RMSE
+real rmse = 0;
+for (int i = 0; i < Ndofs; i++){
+    rmse += pow(vecSST(i) - solution(i), 2);
+}
+rmse = sqrt(rmse/Ndofs);
+cout << "RMSE_"<< nLocs << " = " << rmse << endl;
+
+} // end of loop over nu

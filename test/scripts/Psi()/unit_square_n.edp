@@ -1,4 +1,0 @@
-int n = 5;
-mesh Th = square(n, n);
-plot(Th, wait = 1);
-savemesh(Th, "unit_square_64.mesh");
